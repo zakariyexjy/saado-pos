@@ -44,7 +44,7 @@ const $=s=>document.querySelector(s),LS=localStorage;
 const J=(k,d)=>{try{return JSON.parse(LS.getItem(k))??d}catch(e){return d}};
 const put=(k,v)=>LS.setItem(k,JSON.stringify(v));
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let S=J('sess',{}),names=J('names',[]),cart=[],disc=0,view='sell',q='',pay=null,pin='',pick='',syncing=false,stopFn=null;
+let S=J('sess',{}),names=J('names',[]),cart=[],disc=0,view='sell',q='',pay=null,pin='',pick='',syncing=false,stopFn=null,loadErr='';
 const api=b=>fetch(API,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(b)}).then(r=>r.json());
 const step=()=>+S.settings?.rounding||500,rate=()=>+S.settings?.rate||11850;
 const fmt=n=>Math.round(n).toLocaleString('en-US')+' SH',rt=x=>Math.round(x/step())*step();
@@ -56,7 +56,7 @@ function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeou
 
 /* ---------- login ---------- */
 function loginView(){$('#app').innerHTML=`<div class=login><img src=logo.png alt="Saado"><h3>Who is working?</h3>
-<div class=chips>${names.map(n=>`<button class="${n==pick?'g':'o'}" onclick="pick='${esc(n)}';loginView()">${esc(n)}</button>`).join('')||'<p class=hint>Connect to the internet to load names.</p>'}</div>
+<div class=chips>${names.map(n=>`<button class="${n==pick?'g':'o'}" onclick="pick='${esc(n)}';loginView()">${esc(n)}</button>`).join('')||'<p class=hint>Could not load names.</p><p class=hint style="color:#b3261e">'+esc(loadErr)+'</p>'}</div>
 <div class=dots>${'●'.repeat(pin.length)}</div><div class=pad>${[1,2,3,4,5,6,7,8,9,'⌫',0,'OK'].map(k=>`<button class=o onclick="key('${k}')">${k}</button>`).join('')}</div></div>`}
 async function key(k){
  if(k=='⌫')pin=pin.slice(0,-1);
@@ -68,7 +68,7 @@ async function key(k){
  }else if(pin.length<6)pin+=k;
  loginView()}
 async function refresh(){try{const r=await api({action:'data',token:S.token});if(r.ok){S.settings=r.settings;S.products=r.products;put('sess',S)}}catch(e){}}
-async function loadNames(){try{const r=await api({action:'users'});if(r.ok){names=r.users;put('names',names);if(!S.token)loginView()}}catch(e){}}
+async function loadNames(){try{const r=await api({action:'users'});if(r.ok){names=r.users;put('names',names);loadErr=''}else loadErr='The script answered with an error: '+r.error;}catch(e){loadErr='Cannot reach the script ('+e.message+'). The app is using this address: '+API.slice(0,60)}if(!S.token)loginView()}
 
 /* ---------- shell ---------- */
 function render(){
