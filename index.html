@@ -38,8 +38,8 @@ main{padding:0 12px 12px}.bar,.row{display:flex;gap:8px;margin-bottom:10px}.bar 
 <div id="app"></div><div id="modal"></div>
 <div id="scan" hidden><video id="cam" playsinline muted></video><button class="g" onclick="stopScan()">Close camera</button></div>
 <div id="toast" hidden></div>
+<script src="config.js"></script>
 <script>
-const API='https://script.google.com/macros/s/AKfycbyF_UYkqJplXiQeo6qO-r6DDmYA2THuqXnu5n2Lx44qG6GG1DP-RaGbTE5JV9gzmXJzCg/exec';
 const $=s=>document.querySelector(s),LS=localStorage;
 const J=(k,d)=>{try{return JSON.parse(LS.getItem(k))??d}catch(e){return d}};
 const put=(k,v)=>LS.setItem(k,JSON.stringify(v));
@@ -67,13 +67,13 @@ async function key(k){
   catch(e){toast('Wrong PIN, or no internet');pin=''}
  }else if(pin.length<6)pin+=k;
  loginView()}
-async function refresh(){try{const r=await api({action:'data',token:S.token});if(r.ok){S.settings=r.settings;S.products=r.products;put('sess',S)}}catch(e){}}
+async function refresh(){try{const r=await api({action:'data',token:S.token});if(r.ok){S.settings=r.settings;S.products=r.products;S.customers=r.customers||[];put('sess',S)}}catch(e){}}
 async function loadNames(){try{const r=await api({action:'users'});if(r.ok){names=r.users;put('names',names);loadErr=''}else loadErr='The script answered with an error: '+r.error;}catch(e){loadErr='Cannot reach the script ('+e.message+'). The app is using this address: '+API.slice(0,60)}if(!S.token)loginView()}
 
 /* ---------- shell ---------- */
 function render(){
  if(!S.token)return loginView();const b=biz(),o=S.user.role=='owner';
- const tabs=[['sell','Sell'],...(o?[['prod','Products'],['set','Settings']]:[]),['out','Sign out']];
+ const tabs=[['sell','Sell'],['shift','Shift'],['alerts','Alerts'],['sales','Sales'],['cust','Customers'],...(o?[['sup','Suppliers'],['exp','Expenses'],['prod','Products'],['set','Settings']]:[]),['out','Sign out']];
  $('#app').innerHTML=`<header><img src=icon-192.png alt=""><b>Saado POS</b>${S.user.business=='both'?
  `<select onchange="S.biz=this.value;cart=[];disc=0;render()"><option value=shop ${b=='shop'?'selected':''}>Shop</option><option value=fast ${b=='fast'?'selected':''}>Fast Food</option></select>`:
  `<span class=tag>${b=='shop'?'Shop':'Fast Food'}</span>`}<span id=badge></span></header>
@@ -103,14 +103,14 @@ function cartUpdate(){const c=$('#cart');if(!c)return;c.innerHTML=!cart.length?'
 function startPay(){pay={m:'Cash',cur:'SH',amt:''};showPay()}
 function showPay(){const m=$('#modal');if(!pay){m.innerHTML='';return}const t=total();
  m.innerHTML=`<div class=modal><div class=sheet><div class=big>${fmt(t)} <small>($${(t/rate()).toFixed(2)})</small></div>
- <div class=row>${['Cash','Zaad','Edahab'].map(x=>`<button class="${pay.m==x?'g':'o'}" style="flex:1" onclick="pay.m='${x}';showPay()">${x}</button>`).join('')}</div>
- ${pay.m=='Cash'?`<div class=row><input id=amt type=number inputmode=decimal placeholder="Customer gives" value="${pay.amt}" oninput="pay.amt=this.value;chg()"><button class=o style="width:90px" onclick="pay.cur=pay.cur=='USD'?'SH':'USD';showPay()">${pay.cur}</button></div><div id=chg class=big></div>`:
+ <div class=row>${['Cash','Zaad','Edahab',...(S.settings['credit_'+biz()]=='yes'?['Credit']:[])].map(x=>`<button class="${pay.m==x?'g':'o'}" style="flex:1" onclick="pay.m='${x}';showPay()">${x}</button>`).join('')}</div>
+ ${pay.m=='Cash'?`<div class=row><input id=amt type=number inputmode=decimal placeholder="Customer gives" value="${pay.amt}" oninput="pay.amt=this.value;chg()"><button class=o style="width:90px" onclick="pay.cur=pay.cur=='USD'?'SH':'USD';showPay()">${pay.cur}</button></div><div id=chg class=big></div>`:pay.m=='Credit'?`<select id=cu onchange="pay.cu=this.value"><option value="">Choose customer</option>${(S.customers||[]).map(c=>`<option value="${c.ID}" ${pay.cu==c.ID?'selected':''}>${esc(c.Name)} (${fmt(c.Balance)})</option>`).join('')}</select>`:
  `<div class=big>Send to ${esc(S.settings[(biz()=='shop'?'shop_':'fast_')+pay.m.toLowerCase()]||'-')}</div>`}
  <div class=row><button class=o style="flex:1" onclick="pay=null;showPay()">Back</button><button class=g style="flex:2" onclick="done()">Confirm sale</button></div></div></div>`;chg()}
 const paid=()=>(+pay.amt||0)*(pay.cur=='USD'?rate():1);
 function chg(){const e=$('#chg');if(!e)return;if(!pay.amt){e.textContent='';return}const d=paid()-total();e.textContent=d>=0?'Change: '+fmt(d):'Short by '+fmt(-d);e.className='big'+(d<0?' bad':'')}
-function done(){const t=total();if(pay.m=='Cash'&&pay.amt&&paid()<t)return toast('Amount is less than the total');
- const s={id:'S'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),time:Date.now(),business:biz(),items:cart.map(c=>({id:c.id,qty:c.qty})),discount:disc,payment:pay.m,
+function done(){const t=total();if(pay.m=='Credit'&&!pay.cu)return toast('Choose a customer');if(pay.m=='Cash'&&pay.amt&&paid()<t)return toast('Amount is less than the total');
+ const s={id:'S'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),time:Date.now(),business:biz(),items:cart.map(c=>({id:c.id,qty:c.qty})),discount:disc,payment:pay.m,customer:pay.cu||'',
   tendered:pay.m=='Cash'&&pay.amt?pay.amt+' '+pay.cur:'',change:pay.m=='Cash'&&pay.amt?Math.round(paid()-t):''};
  put('q',[...queue(),s]);if(biz()=='shop')cart.forEach(c=>P(c.id).Stock-=c.qty);put('sess',S);
  cart=[];disc=0;pay=null;showPay();grid();cartUpdate();badge();toast('Sale saved');sync()}
@@ -147,4 +147,5 @@ async function saveSet(){const v={};Object.keys(S.settings).forEach(k=>v[k]=$('#
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
 addEventListener('online',()=>{sync();badge()});addEventListener('offline',badge);setInterval(sync,30000);
 S.token?(render(),refresh().then(()=>{if(view=='sell')grid()}),sync()):loginView();loadNames();
-</script></body></html>
+</script>
+<script src="part2.js"></script></body></html>

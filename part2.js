@@ -1,0 +1,33 @@
+/* Saado POS Part 2: shifts, alerts, sales/refunds, customers, suppliers, expenses */
+Object.assign(LBL,{credit_shop:'Allow credit in Shop (yes/no)',credit_fast:'Allow credit in Fast Food (yes/no)'});
+const A=(a,x={})=>api({action:a,token:S.token,...x}).then(r=>{if(r.error=='AUTH'){S.token=null;loginView();throw 0}if(!r.ok)throw new Error(r.error);return r});
+const out=h=>{const e=$('#pg');if(e)e.innerHTML=h},fail=e=>e&&toast(e.message=='Failed to fetch'?'This needs internet':e.message);
+const fld=(id,l,t='number')=>`<label>${l}<input id=${id} type=${t} ${t=='number'?'inputmode=decimal':''}></label>`,val=id=>$('#'+id).value;
+const pg='<div id=pg><p class=hint>Loading...</p></div>',dt=d=>new Date(d).toLocaleString([], {dateStyle:'short',timeStyle:'short'});
+const bn=b=>b=='shop'?'Shop':'Fast Food',SF=[['Cash','Cash in drawer (SH)'],['ZaadSH','Zaad balance (SH)'],['ZaadUSD','Zaad balance (USD)'],['EdahabSH','Edahab balance (SH)'],['EdahabUSD','Edahab balance (USD)']];
+Object.assign(V,{shift:()=>pg,sales:()=>pg,cust:()=>pg,sup:()=>pg,
+ exp:()=>`<div class=card2><label>Category<select id=e_c>${['Electricity','Deliveries','Supplier purchases','Salaries','Other'].map(x=>`<option>${x}</option>`).join('')}</select></label>${fld('e_a','Amount (SH)')}<label>Paid by<select id=e_m><option>Cash</option><option>Zaad</option><option>Edahab</option></select></label>${fld('e_n','Note (optional)','text')}<button class=g onclick="expSave()">Save expense</button></div>${pg}`,
+ alerts(){const b=biz(),ps=S.products.filter(p=>p.Business==b),soon=Date.now()+30*864e5;if(b!='shop')return '<p class=hint>Fast Food ingredient alerts come in Part 3.</p>';
+  const L=(t,a,f)=>`<h3>${t} (${a.length})</h3>`+(a.map(p=>`<div class=li><b>${esc(p.Name)}</b><span>${f(p)}</span></div>`).join('')||'<p class=hint>None</p>');
+  return L('Low stock',ps.filter(p=>p.Stock<=p.LowStock),p=>`Stock ${p.Stock}, warning at ${p.LowStock}`)+L('Expired or expiring within 30 days',ps.filter(p=>p.Expiry&&new Date(p.Expiry)<=soon),p=>`${p.Expiry}${new Date(p.Expiry)<Date.now()?' · expired':''}`)}});
+const row=(t,s,btn='')=>`<div class=li><b>${t}</b><span>${s}</span>${btn}</div>`;
+Object.assign(after,{
+ async shift(){try{const s=(await A('shiftGet')).shift;
+  out(`<div class=card2><h3>${s?'End your shift':'Start your shift'}</h3>${s?`<p class=hint>Started ${dt(s.Start)}</p>`:''}${SF.map(([k,l])=>fld('sf_'+k,l)).join('')}<button class=g onclick="shiftGo(${s?1:0})">${s?'End shift':'Start shift'}</button></div><div id=hist></div>`);
+  if(S.user.role=='owner')$('#hist').innerHTML='<h3>Recent shifts</h3>'+(await A('shiftList')).rows.map(x=>row(`${esc(x.User)} · ${bn(x.Business)}`,`${dt(x.Start)}${x.End?' to '+dt(x.End)+'<br>Cash expected '+fmt(x.ExpectedCash)+' · counted '+fmt(x.CloseCash)+' · difference '+fmt(x.CashDiff)+'<br>Zaad '+fmt(x.CloseZaadSH)+' / $'+x.CloseZaadUSD+' · Edahab '+fmt(x.CloseEdahabSH)+' / $'+x.CloseEdahabUSD:' · open'}`)).join('')}catch(e){out('<p class=hint>This needs internet.</p>');fail(e)}},
+ async sales(){try{let h='';if(S.user.role=='owner'){const r=(await A('refundList')).rows;h=`<h3>Refund requests (${r.length})</h3>`+(r.map(x=>row(`${esc(x.RequestedBy)} · ${bn(x.Business)}`,`${esc(x.Reason)}<br>Sale ${x.SaleID}`,`<div class=row><button class=o style=flex:1 onclick="refundDo('${x.ID}',false)">Reject</button><button class=g style=flex:1 onclick="refundDo('${x.ID}',true)">Approve</button></div>`)).join('')||'<p class=hint>None</p>')}
+  out(h+'<h3>Recent sales</h3>'+(await A('salesList',{business:biz()})).rows.map(x=>row(`${fmt(x.Total)} · ${x.Payment}${x.Status?' · '+x.Status:''}`,`${dt(x.Date)} · ${esc(x.Cashier)}`,x.Status?'':`<button class=o onclick="refundAsk('${x.SaleID}')">Request refund</button>`)).join(''))}catch(e){out('<p class=hint>This needs internet.</p>');fail(e)}},
+ async cust(){await refresh();out(`<div class=bar><button class=g onclick="custNew()">+ New customer</button></div>`+(S.customers||[]).map(c=>row(`${esc(c.Name)} ${esc(c.Phone||'')}`,`Owes ${fmt(c.Balance)}`,`<button class=o onclick="custPay('${c.ID}')">Record payment</button>`)).join(''))},
+ async sup(){try{out(`<div class=bar><button class=g onclick="supNew()">+ New supplier</button></div>`+(await A('supList')).rows.map(s=>row(`${esc(s.Name)} ${esc(s.Phone||'')}`,`We owe ${fmt(s.Owed)}`,`<button class=o onclick="supEntry('${s.ID}')">Record purchase / payment</button>`)).join(''))}catch(e){out('<p class=hint>This needs internet.</p>');fail(e)}},
+ async exp(){try{out((await A('expList',{business:biz()})).rows.map(x=>row(`${esc(x.Category)} · ${fmt(x.Amount)} · ${x.Method}`,`${dt(x.Date)}${x.Note?' · '+esc(x.Note):''}`)).join(''))}catch(e){fail(e)}}});
+async function shiftGo(end){const f={};SF.forEach(([k])=>f[k]=+val('sf_'+k)||0);
+ try{const r=await A(end?'shiftEnd':'shiftStart',{business:biz(),f});toast(end?'Shift ended. Cash difference: '+fmt(r.diff):'Shift started');go('shift')}catch(e){fail(e)}}
+async function refundAsk(id){const reason=prompt('Why is this sale being refunded?');if(!reason)return;try{await A('refundReq',{saleId:id,reason});toast('Refund requested. An owner must approve it.')}catch(e){fail(e)}}
+async function refundDo(id,ok){try{await A('refundDecide',{id,approve:ok});toast(ok?'Refund approved':'Refund rejected');go('sales')}catch(e){fail(e)}}
+async function custNew(){const name=prompt('Customer name');if(!name)return;try{await A('custAdd',{name,phone:prompt('Phone number (optional)')||''});await refresh();go('cust')}catch(e){fail(e)}}
+async function custPay(id){const amount=+prompt('Amount paid (SH)');if(!amount)return;const method=prompt('Paid by: Cash, Zaad or Edahab','Cash');if(!method)return;
+ try{await A('custPay',{id,amount,method,business:biz()});await refresh();go('cust');toast('Payment recorded')}catch(e){fail(e)}}
+async function supNew(){const name=prompt('Supplier name');if(!name)return;try{await A('supAdd',{name,phone:prompt('Phone number (optional)')||''});go('sup')}catch(e){fail(e)}}
+async function supEntry(id){const bought=+prompt('Amount bought on this invoice (SH, 0 if none)','0')||0,paid=+prompt('Amount paid now (SH, 0 if none)','0')||0;if(!bought&&!paid)return;
+ const method=paid?prompt('Paid by: Cash, Zaad or Edahab','Cash'):'',note=prompt('Note (optional)')||'';try{await A('supEntry',{id,bought,paid,method,note,business:biz()});go('sup');toast('Saved')}catch(e){fail(e)}}
+async function expSave(){const amount=+val('e_a');if(!amount)return toast('Enter the amount');try{await A('expAdd',{business:biz(),category:val('e_c'),amount,method:val('e_m'),note:val('e_n')});go('exp');toast('Expense saved')}catch(e){fail(e)}}
